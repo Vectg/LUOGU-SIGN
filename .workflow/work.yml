@@ -1,0 +1,29 @@
+version: '1.0'
+name: work
+displayName: work
+triggers:
+  trigger: manual
+  schedule:
+    - cron: '* 45 19 * * ? *'
+variables:
+  global:
+    - COOKIE
+stages:
+  - name: build
+    displayName: build
+    strategy: naturally
+    trigger: auto
+    executor:
+      - xcx0902
+    steps:
+      - step: build@python
+        name: punch
+        displayName: punch
+        pythonVersion: '3.9'
+        commands:
+          - pip install requests -i https://pypi.tuna.tsinghua.edu.cn/simple
+          - python ./luogu-auto-punch.py ${COOKIE}
+        caches: []
+        notify: []
+        strategy:
+          retry: '0'
