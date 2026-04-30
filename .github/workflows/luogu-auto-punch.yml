@@ -12,7 +12,9 @@ jobs:
       - name: Download script
         run: Invoke-WebRequest https://raw.githubusercontent.com/xcx0902/python/main/luogu-auto-punch.py -OutFile script.py
       - name: Install dependencies
-        run: pip install requests
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
       - name: Run script
         run: python .\script.py $Env:COOKIE
         env:
