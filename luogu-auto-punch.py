@@ -1,50 +1,31 @@
 import requests
 import json
 import sys
-import re
 
-# 强制 stdout 使用 UTF-8（解决 Windows 编码问题）
-sys.stdout.reconfigure(encoding='utf-8')
-
-def get_csrf_token(cookie):
-    """从洛谷首页提取 CSRF token（正则匹配，更稳定）"""
-    resp = requests.get('https://www.luogu.com.cn', headers={
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Cookie': cookie
-    })
-    match = re.search(r'<meta\s+name="csrf-token"\s+content="([^"]+)"', resp.text)
-    if match:
-        return match.group(1)
-    else:
-        raise RuntimeError("无法从页面提取 CSRF token，请检查网络或 Cookie 是否有效")
+# 强制 stdout 使用 UTF-8，避免 Windows 控制台编码错误
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 
 def punch(cookie):
-    """执行签到请求"""
-    token = get_csrf_token(cookie)
-    resp = requests.post('https://www.luogu.com.cn/index/ajax_punch', headers={
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Referer': 'https://www.luogu.com.cn/',
-        'X-CSRF-Token': token,
-        'X-Requested-With': 'XMLHttpRequest',
-        'Cookie': cookie
-    })
-    return resp.text
+    return requests.get('https://www.luogu.com.cn/index/ajax_punch', headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv: 73.0) Gecko/20100101 Firefox/73.0",
+        "Accept": "*/*",
+        "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
+        "Referer": "https://www.luogu.com.cn/",
+        "Cookie": cookie
+    }).text
 
 if __name__ == "__main__":
-    # 第一个参数是脚本名，后面每个参数是一个 Cookie 字符串（支持多账号）
-    if len(sys.argv) < 2:
-        print("❌ 错误：未提供 Cookie，请在 Secret 中设置 COOKIE")
-        sys.exit(1)
-
+    # 不再打印脚本名和 cookie 内容
     for i in range(1, len(sys.argv)):
-        cookie = sys.argv[i].strip()
+        cookie = sys.argv[i]
         print(f"正在签到账号 #{i} ...")
+        response = punch(cookie)
         try:
-            response_text = punch(cookie)
-            data = json.loads(response_text)
-            if data.get('code') == 200:
-                print(f"✅ 签到成功：{data['more']['html']}")
+            tmp = json.loads(response)
+            if tmp.get('code') == 200:
+                print(f"✅ 签到成功：{tmp['more']['html']}")
             else:
-                print(f"❌ 签到失败：{data.get('code')} - {data.get('message', '未知错误')}")
-        except Exception as e:
-            print(f"⚠️ 账号 #{i} 出错：{e}")
+                print(f"❌ 签到失败：{tmp.get('code')} - {tmp.get('message', '未知错误')}")
+        except Exception as err:
+            print(f"⚠️ 解析响应出错：{err}")
