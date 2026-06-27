@@ -1,52 +1,69 @@
 # coding=utf-8
-import cloudscraper
 import json
 import sys
-import re
+from playwright.sync_api import sync_playwright, TimeoutError
 
-def GetCSRF(scraper):
-    # 发起请求，自动处理 Cloudflare 挑战
-    response = scraper.get('https://www.luogu.com.cn', headers={
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'referer': 'https://www.luogu.com.cn/',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    })
-    
-    # 正则匹配 csrf-token，比硬切片更稳定
-    match = re.search(r'<meta name="csrf-token" content="([^"]+)">', response.text)
-    if not match:
-        raise RuntimeError("未能获取 CSRF Token，页面可能被 Cloudflare 拦截")
-    
-    token = match.group(1)
-    print(f"获取到CSRF Token: {token[:10]}...")
-    return token
+def parse_cookie(cookie_str):
+    """将Cookie字符串转换为Playwright所需格式"""
+    cookies = []
+    for item in cookie_str.strip(';').split(';'):
+        if '=' not in item:
+            continue
+        name, value = item.split('=', 1)
+        cookies.append({
+            'name': name.strip(),
+            'value': value.strip(),
+            'domain': '.luogu.com.cn',
+            'path': '/'
+        })
+    return cookies
 
-def punch(cookie):
-    # 创建 cloudscraper 实例
-    scraper = cloudscraper.create_scraper()
-    # 解析 cookie 并写入会话
-    cookie_dict = {}
-    for item in cookie.strip(';').split(';'):
-        if '=' in item:
-            k, v = item.split('=', 1)
-            cookie_dict[k.strip()] = v.strip()
-    scraper.cookies.update(cookie_dict)
-    
-    csrf_token = GetCSRF(scraper)
-    
-    resp = scraper.post(
-        'https://www.luogu.com.cn/index/ajax_punch',
-        headers={
-            'accept': 'application/json, text/javascript, */*; q=0.01',
-            'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'referer': 'https://www.luogu.com.cn/',
-            'x-csrf-token': csrf_token,
-            'x-requested-with': 'XMLHttpRequest',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        }
-    )
-    return resp.text
+def punch(cookie_str):
+    with sync_playwright() as p:
+        # 启动无头浏览器，移除自动化特征，降低被检测概率
+        browser = p.chromium.launch(
+            headless=True,
+            args=['--no-sandbox', '--disable-blink-features=AutomationControlled']
+        )
+        # 创建浏览器上下文，模拟正常用户环境
+        context = browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            viewport={'width': 1920, 'height': 1080}
+        )
+        # 预先注入登录Cookie
+        context.add_cookies(parse_cookie(cookie_str))
+
+        try:
+            page = context.new_page()
+            # 访问洛谷首页，等待DOM加载完成
+            page.goto('https://www.luogu.com.cn', wait_until='domcontentloaded')
+
+            # 等待CSRF Token元素出现，最多等30秒，预留Cloudflare验证时间
+            page.wait_for_selector('meta[name="csrf-token"]', timeout=30000)
+            csrf_token = page.locator('meta[name="csrf-token"]').get_attribute('content')
+            print(f"成功获取CSRF Token: {csrf_token[:10]}...")
+
+            # 复用当前浏览器会话发起打卡请求，Cookie/指纹完全一致
+            response = context.request.post(
+                'https://www.luogu.com.cn/index/ajax_punch',
+                headers={
+                    'accept': 'application/json, text/javascript, */*; q=0.01',
+                    'referer': 'https://www.luogu.com.cn/',
+                    'x-csrf-token': csrf_token,
+                    'x-requested-with': 'XMLHttpRequest'
+                }
+            )
+
+            result_text = response.text()
+            browser.close()
+            return result_text
+
+        except TimeoutError:
+            browser.close()
+            raise RuntimeError("页面加载超时，Cloudflare验证未通过（IP风控等级过高）")
+        except Exception as e:
+            browser.close()
+            raise e
 
 if __name__ == "__main__":
     print(f"Script Name: {sys.argv[0]}")
@@ -60,5 +77,7 @@ if __name__ == "__main__":
                 print('打卡成功！', tmp['more']['html'])
             else:
                 print('打卡失败，code =', tmp['code'], '信息：', tmp['message'])
+                sys.exit(1)
         except Exception as err:
             print(f"执行出错: {err}")
+            sys.exit(1)
