@@ -1,24 +1,26 @@
 name: Luogu auto punch
-
 on:
   schedule:
-    - cron: "0 0 * * *"          # 每天 UTC 0:00 (北京时间 8:00)
-  workflow_dispatch:              # 支持手动触发
-
+    - cron: "0 0 * * *"
+  workflow_dispatch:
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests
+          pip install cloudscraper
 
       - name: Run script
-        run: python luogu-auto-punch.py $Env:COOKIE
+        run: python luogu-auto-punch.py "$COOKIE"
         env:
           COOKIE: ${{ secrets.COOKIE }}
-          PYTHONIOENCODING: utf-8   # 防止 Windows 控制台输出中文报错
