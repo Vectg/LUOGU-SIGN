@@ -1,65 +1,50 @@
-# coding=utf-8
-
 import requests
 import json
 import sys
+import re
 
-def GetCSRF(cookie):
-    content = requests.get('https://www.luogu.com.cn', headers = {
-        'accept': '*/*',
-        'accept-language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
-        'content-length': '0',
-        'origin': 'https://www.luogu.com.cn',
-        'priority': 'u=1, i',
-        'referer': 'https://www.luogu.com.cn/',
-        'sec-ch-ua': '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
-        'sec-ch-ua-mobile': '?0',
-        # 'sec-ch-ua-platform': '"macOS"',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin',
-        'user-agent': 'Chrome',
-        "Cookie": cookie
-    }).content
-    print(content)
-    # soup = BeautifulSoup(content, 'html.parser')
-    # token = soup.find('meta', {'name': 'csrf-token'})['content']
-    p = content.find(b'csrf-token')
-    token = content[p+21:p+76].decode('utf-8')
-    print(token)
-    return token
+# 强制 stdout 使用 UTF-8（解决 Windows 编码问题）
+sys.stdout.reconfigure(encoding='utf-8')
+
+def get_csrf_token(cookie):
+    """从洛谷首页提取 CSRF token（正则匹配，更稳定）"""
+    resp = requests.get('https://www.luogu.com.cn', headers={
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Cookie': cookie
+    })
+    match = re.search(r'<meta\s+name="csrf-token"\s+content="([^"]+)"', resp.text)
+    if match:
+        return match.group(1)
+    else:
+        raise RuntimeError("无法从页面提取 CSRF token，请检查网络或 Cookie 是否有效")
 
 def punch(cookie):
-    return requests.post('https://www.luogu.com.cn/index/ajax_punch', headers = {
-        'accept': '*/*',
-        'accept-language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
-        'content-length': '0',
-        'origin': 'https://www.luogu.com.cn',
-        'priority': 'u=1, i',
-        'referer': 'https://www.luogu.com.cn/',
-        'sec-ch-ua': '"Google Chrome";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
-        'sec-ch-ua-mobile': '?0',
-        # 'sec-ch-ua-platform': '"macOS"',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin',
-        'user-agent': 'Chrome',
-        'x-csrf-token': GetCSRF(cookie),
-        'x-requested-with': 'XMLHttpRequest',
-        "Cookie": cookie
-    }).text
+    """执行签到请求"""
+    token = get_csrf_token(cookie)
+    resp = requests.post('https://www.luogu.com.cn/index/ajax_punch', headers={
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://www.luogu.com.cn/',
+        'X-CSRF-Token': token,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Cookie': cookie
+    })
+    return resp.text
 
 if __name__ == "__main__":
-    print(f"Script Name: {sys.argv[0]}")
+    # 第一个参数是脚本名，后面每个参数是一个 Cookie 字符串（支持多账号）
+    if len(sys.argv) < 2:
+        print("❌ 错误：未提供 Cookie，请在 Secret 中设置 COOKIE")
+        sys.exit(1)
+
     for i in range(1, len(sys.argv)):
-        response = punch(sys.argv[i])
-        print(f"No. {i}: {sys.argv[i]}")
+        cookie = sys.argv[i].strip()
+        print(f"正在签到账号 #{i} ...")
         try:
-            print(response)
-            tmp = json.loads(response)
-            if tmp['code'] == 200:
-                print('code =', tmp['code'], 'message =', tmp['more']['html'])
+            response_text = punch(cookie)
+            data = json.loads(response_text)
+            if data.get('code') == 200:
+                print(f"✅ 签到成功：{data['more']['html']}")
             else:
-                print('code =', tmp['code'], 'message =', tmp['message'])
-        except Exception as err:
-            print(f"<{err}>")
+                print(f"❌ 签到失败：{data.get('code')} - {data.get('message', '未知错误')}")
+        except Exception as e:
+            print(f"⚠️ 账号 #{i} 出错：{e}")
